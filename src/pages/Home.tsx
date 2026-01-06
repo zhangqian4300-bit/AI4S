@@ -1,8 +1,9 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useTranslationStore } from '@/store/useTranslationStore';
-import { translateText } from '@/lib/api';
-import { Briefcase, ArrowRight, Copy, Eraser, Loader2, Brain, Wrench, FlaskConical } from 'lucide-react';
+import { translateText, uploadFile } from '@/lib/api';
+import { Briefcase, ArrowRight, Copy, Eraser, Loader2, Brain, Wrench, FlaskConical, Send } from 'lucide-react';
+import { chatWithRole } from '@/lib/api';
 
 // Reusable Card Component
 const ViewCard = ({ 
@@ -11,7 +12,8 @@ const ViewCard = ({
   icon, 
   content, 
   onCopy, 
-  isHighlighted = false 
+  isHighlighted = false,
+  role
 }: { 
   title: string; 
   subtitle: string; 
@@ -19,7 +21,11 @@ const ViewCard = ({
   content?: string; 
   onCopy: (text: string) => void;
   isHighlighted?: boolean;
+  role?: 'industryExpert' | 'aiScientist' | 'engineer' | 'domainScientist';
 }) => {
+  const [chatInput, setChatInput] = React.useState('');
+  const [messages, setMessages] = React.useState<Array<{ role: 'user' | 'assistant', content: string }>>([]);
+  const [chatLoading, setChatLoading] = React.useState(false);
   const baseBorderColor = isHighlighted ? 'border-indigo-100' : 'border-slate-200';
   const ringClass = isHighlighted ? 'ring-1 ring-indigo-50' : '';
   const headerBg = isHighlighted ? 'bg-indigo-50/50' : 'bg-slate-50';
@@ -32,6 +38,23 @@ const ViewCard = ({
     ? 'prose-indigo prose-p:text-slate-700 prose-headings:text-indigo-900 prose-strong:text-indigo-800' 
     : 'prose-slate prose-p:text-slate-700 prose-headings:text-slate-800 prose-strong:text-slate-900';
   const contentBg = isHighlighted ? 'bg-white' : 'bg-slate-50/50';
+
+  const handleSend = async () => {
+    if (!chatInput.trim() || !content || !role) return;
+    const userMsg = { role: 'user' as const, content: chatInput.trim() };
+    setMessages((prev) => [...prev, userMsg]);
+    setChatInput('');
+    setChatLoading(true);
+    try {
+      const res = await chatWithRole(role, content, [...messages, userMsg]);
+      const reply = res.reply as string;
+      setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
+    } catch (e: any) {
+      setMessages((prev) => [...prev, { role: 'assistant', content: `发生错误：${e.message || '服务不可用'}` }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   return (
     <div className={`bg-white rounded-xl shadow-sm border ${baseBorderColor} flex flex-col overflow-hidden ${ringClass} h-full`}>
@@ -53,7 +76,7 @@ const ViewCard = ({
           </div>
         )}
       </div>
-      <div className={`p-3 border-t ${headerBorder} bg-white flex justify-end`}>
+      <div className={`p-3 border-t ${headerBorder} bg-white flex justify-between items-center gap-3`}>
         <button 
           onClick={() => content && onCopy(content)}
           disabled={!content}
@@ -62,7 +85,42 @@ const ViewCard = ({
           <Copy className="w-3.5 h-3.5" />
           <span>复制</span>
         </button>
+        {role && (
+          <div className="flex items-center gap-2 flex-1 justify-end">
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder="向该角色继续提问..."
+              className="flex-1 text-sm border border-slate-200 rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <button
+              onClick={handleSend}
+              disabled={chatLoading || !content || !chatInput.trim()}
+              className="inline-flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white text-xs font-medium px-3 py-1.5 rounded-md"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>发送</span>
+            </button>
+          </div>
+        )}
       </div>
+      {messages.length > 0 && (
+        <div className="px-5 pb-5">
+          <div className="space-y-3">
+            {messages.map((m, idx) => (
+              <div key={idx} className={m.role === 'user' ? 'text-slate-800' : 'text-slate-700'}>
+                <div className={`text-xs font-medium mb-1 ${m.role === 'user' ? 'text-indigo-600' : 'text-slate-500'}`}>
+                  {m.role === 'user' ? '你' : '助手'}
+                </div>
+                <div className="prose prose-sm max-w-none">
+                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                </div>
+              </div>
+            ))}
+            {chatLoading && <div className="text-xs text-slate-500">思考中...</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -140,6 +198,31 @@ export default function Home() {
                 onChange={(e) => setInputText(e.target.value)}
                 disabled={isLoading}
               />
+              <div className="mt-4 flex items-center justify-between">
+                <label className="inline-flex items-center px-3 py-2 rounded-md border border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer">
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.docx,.pptx,.xlsx,.csv"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      try {
+                        setLoading(true)
+                        const data = await uploadFile(file)
+                        setInputText(data.text || '')
+                      } catch (err: any) {
+                        setError(err.message || '文件解析失败')
+                      } finally {
+                        setLoading(false)
+                        e.target.value = ''
+                      }
+                    }}
+                  />
+                  <span className="text-sm">上传文件（PDF/Word/PPT/Excel/CSV）</span>
+                </label>
+                {isLoading && <span className="text-xs text-slate-500">处理中...</span>}
+              </div>
               <div className="pt-4 border-t border-slate-100 mt-4">
                 <button
                   onClick={handleGenerate}
@@ -177,6 +260,7 @@ export default function Home() {
               content={result?.industryExpert}
               onCopy={handleCopy}
               isHighlighted
+              role="industryExpert"
             />
 
             {/* AI 科学家视角 */}
@@ -186,6 +270,7 @@ export default function Home() {
               icon={<Brain className="w-4 h-4 text-slate-600" />}
               content={result?.aiScientist}
               onCopy={handleCopy}
+              role="aiScientist"
             />
 
             {/* 工程师视角 */}
@@ -195,6 +280,7 @@ export default function Home() {
               icon={<Wrench className="w-4 h-4 text-slate-600" />}
               content={result?.engineer}
               onCopy={handleCopy}
+              role="engineer"
             />
 
             {/* 领域科学家视角 */}
@@ -204,6 +290,7 @@ export default function Home() {
               icon={<FlaskConical className="w-4 h-4 text-slate-600" />}
               content={result?.domainScientist}
               onCopy={handleCopy}
+              role="domainScientist"
             />
           </div>
         </div>

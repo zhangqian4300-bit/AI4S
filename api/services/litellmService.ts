@@ -110,3 +110,41 @@ export const translateText = async (text: string): Promise<TranslationResult> =>
     throw error;
   }
 };
+
+const rolePrompts: Record<string, string> = {
+  industryExpert: `你是资深产业专家，从商业与产业视角进行客观分析，输出使用 Markdown。`,
+  aiScientist: `你是 AI 科学家，从方法与评测视角进行严谨分析，输出使用 Markdown。`,
+  engineer: `你是资深工程师，从集成与性能边界视角进行务实分析，输出使用 Markdown。`,
+  domainScientist: `你是领域科学家，从实证与适用范围视角进行专业分析，输出使用 Markdown。`,
+};
+
+export const chatWithRole = async (role: string, context: string, messages: Array<{ role: 'user' | 'assistant', content: string }>) => {
+  const system = `${rolePrompts[role] || '你是专业助手，使用 Markdown 回复。'}\n\n上下文：\n${context || '无'}\n\n要求：\n- 用简体中文\n- 保持客观，避免编造\n- 使用 Markdown 列表与小标题组织`;
+  const response = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-5.1-chat',
+      messages: [
+        { role: 'system', content: system },
+        ...messages,
+      ],
+    }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`LiteLLM API Error: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+  const data = await response.json();
+  const content = data.choices[0]?.message?.content;
+  try {
+    const parsed = JSON.parse(content);
+    const text = parsed.text || parsed.content || content;
+    return typeof text === 'string' ? text : content;
+  } catch {
+    return content;
+  }
+}
